@@ -85,12 +85,36 @@ The function uses the following default settings:
 
 These can be modified in the `textToSpeech.js` file as needed.
 
-## Text Processing
+## Intelligent Text Processing
 
-The function automatically splits input text into chunks using:
-- Sentence boundaries (periods, exclamation marks, question marks)
-- Paragraph breaks (double newlines)
-- Whitespace normalization and filtering
+The function uses advanced Natural Language Processing (NLP) for optimal text chunking and audio quality.
+
+### NLP-Based Sentence Detection
+
+The system leverages **wink-nlp** with a trained English language model to provide sophisticated sentence boundary detection that goes far beyond simple period-splitting:
+
+**Complex Cases Handled Correctly:**
+- **Abbreviations**: "Dr. Smith works at St. Mary's Hospital." → (1 sentence)
+- **Decimal Numbers**: "The price is $49.99 plus tax." → (1 sentence)
+- **Multiple Punctuation**: "Really?! That's amazing!!!" → (2 sentences)
+- **Initials**: "J.K. Rowling wrote Harry Potter." → (1 sentence)
+- **URLs/Emails**: "Visit www.example.com for more info." → (1 sentence)
+
+### Intelligent Chunking Strategy
+
+1. **NLP Analysis**: Text is analyzed using a trained language model to identify proper sentence boundaries
+2. **Sentence Grouping**: Multiple sentences are combined into chunks that stay under the Google TTS API limit (5000 characters)
+3. **Quality Optimization**: Each chunk contains complete thoughts, never breaking sentences mid-stream for natural-sounding audio
+4. **Fallback Protection**: Long sentences are gracefully split at word boundaries when necessary
+
+### Benefits Over Simple Text Splitting
+
+- **Higher Audio Quality**: Natural speech flow is preserved by respecting sentence boundaries
+- **Linguistic Accuracy**: Handles complex punctuation, abbreviations, and edge cases correctly  
+- **API Compliance**: Ensures all chunks stay within Google TTS character limits
+- **Robust Processing**: Graceful handling of edge cases and unusual input patterns
+
+This intelligent approach ensures that the generated audio sounds natural and professional, avoiding awkward pauses or cuts in the middle of sentences.
 
 ## Deployment
 
