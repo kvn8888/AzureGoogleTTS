@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Mic, Download, Play, Pause, Volume2, Loader2, LogOut, User } from 'lucide-react'
+import { Mic, Download, Volume2, Loader2, LogOut, User } from 'lucide-react'
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 
@@ -11,9 +11,7 @@ export default function Home() {
   const [text, setText] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
-  const [isPlaying, setIsPlaying] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [audio, setAudio] = useState<HTMLAudioElement | null>(null)
 
   // Redirect to sign-in if not authenticated
   if (status === 'loading') {
@@ -80,28 +78,6 @@ export default function Home() {
     } finally {
       setIsGenerating(false)
     }
-  }
-
-  const playAudio = () => {
-    if (!audioUrl) return
-
-    if (audio) {
-      audio.pause()
-      setAudio(null)
-      setIsPlaying(false)
-      return
-    }
-
-    const newAudio = new Audio(audioUrl)
-    newAudio.onended = () => {
-      setIsPlaying(false)
-      setAudio(null)
-    }
-    newAudio.onplay = () => setIsPlaying(true)
-    newAudio.onpause = () => setIsPlaying(false)
-    
-    setAudio(newAudio)
-    newAudio.play()
   }
 
   const downloadAudio = () => {
@@ -198,28 +174,30 @@ export default function Home() {
             {audioUrl && (
               <div className="bg-gray-50 rounded-lg p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Generated Audio</h3>
-                <div className="flex items-center space-x-4">
-                  <button
-                    onClick={playAudio}
-                    className="bg-green-600 hover:bg-green-700 text-white p-3 rounded-full transition-colors duration-200"
+                <div className="space-y-4">
+                  {/* Browser's native audio player */}
+                  <audio 
+                    controls 
+                    src={audioUrl}
+                    className="w-full"
+                    preload="auto"
                   >
-                    {isPlaying ? (
-                      <Pause className="w-6 h-6" />
-                    ) : (
-                      <Play className="w-6 h-6" />
-                    )}
-                  </button>
+                    Your browser does not support the audio element.
+                  </audio>
                   
-                  <button
-                    onClick={downloadAudio}
-                    className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors duration-200 flex items-center"
-                  >
-                    <Download className="w-5 h-5 mr-2" />
-                    Download
-                  </button>
-                  
-                  <div className="text-sm text-gray-600">
-                    Click play to listen or download the audio file
+                  {/* Download button */}
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={downloadAudio}
+                      className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors duration-200 flex items-center"
+                    >
+                      <Download className="w-5 h-5 mr-2" />
+                      Download Audio
+                    </button>
+                    
+                    <div className="text-sm text-gray-600">
+                      Use the audio controls above to play, pause, seek, and adjust volume
+                    </div>
                   </div>
                 </div>
               </div>
