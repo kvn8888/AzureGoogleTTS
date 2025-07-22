@@ -177,6 +177,8 @@ The repository includes a GitHub Actions workflow that automatically deploys you
    Go to your GitHub repository → Settings → Secrets and variables → Actions, and add:
    
    - `AZURE_CREDENTIALS`: The JSON output from step 1
+   - `AZURE_FUNCTION_APP_NAME`: Your function app name (e.g., `func-my-tts-app`)
+   - `AZURE_RESOURCE_GROUP_NAME`: Your resource group name (e.g., `rg-my-tts-app`)
    - `GOOGLE_APPLICATION_CREDENTIALS_JSON`: Your Google Cloud service account JSON
 
 3. **Workflow Triggers:**
