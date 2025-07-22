@@ -1,0 +1,76 @@
+name: Deploy Azure Function
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'src/functions/textToSpeech.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'host.json'
+  workflow_dispatch: # Allow manual triggering
+
+env:
+  NODE_VERSION: '18'
+  AZURE_FUNCTIONAPP_NAME: '' # Will be populated from Terraform output
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 'Checkout GitHub Action'
+      uses: actions/checkout@v4
+
+    - name: 'Setup Node.js'
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: 'Install dependencies'
+      run: npm ci
+
+    - name: 'Setup Terraform'
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ~1.0
+        terraform_wrapper: false
+
+    - name: 'Azure CLI Login'
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: 'Initialize Terraform'
+      run: terraform init
+      working-directory: ./terraform
+
+    - name: 'Get Function App Name from Terraform'
+      id: terraform
+      run: |
+        FUNCTION_APP_NAME=$(terraform output -raw function_app_name)
+        echo "function_app_name=$FUNCTION_APP_NAME" >> $GITHUB_OUTPUT
+        echo "Function App Name: $FUNCTION_APP_NAME"
+      working-directory: ./terraform
+
+    - name: 'Deploy to Azure Function App'
+      run: |
+        npx func azure functionapp publish ${{ steps.terraform.outputs.function_app_name }} --javascript
+      env:
+        # Ensure we have the latest Azure Functions Core Tools
+        FUNCTIONS_CORE_TOOLS_TELEMETRY_OPTOUT: 1
+
+    - name: 'Set Function App Settings'
+      run: |
+        az functionapp config appsettings set \
+          --name ${{ steps.terraform.outputs.function_app_name }} \
+          --resource-group $(terraform output -raw resource_group_name) \
+          --settings "GOOGLE_APPLICATION_CREDENTIALS_JSON=${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}"
+      working-directory: ./terraform
+
+    - name: 'Deployment Summary'
+      run: |
+        echo "🚀 Deployment completed successfully!"
+        echo "Function App: ${{ steps.terraform.outputs.function_app_name }}"
+        echo "URL: https://${{ steps.terraform.outputs.function_app_name }}.azurewebsites.net/api/textToSpeech"

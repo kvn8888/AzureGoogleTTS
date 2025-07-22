@@ -159,7 +159,54 @@ For a large text resulting in 200 chunks with a 120/minute quota:
 
 This ensures reliable processing of large documents without hitting API limits or losing data.
 
-## Deployment
+## Continuous Deployment with GitHub Actions
+
+The repository includes a GitHub Actions workflow that automatically deploys your function whenever you make changes to the code.
+
+### Setup GitHub Actions Deployment
+
+1. **Create Azure Service Principal:**
+   ```bash
+   az ad sp create-for-rbac --name "github-actions-sp" \
+     --role contributor \
+     --scopes /subscriptions/<subscription-id> \
+     --sdk-auth
+   ```
+
+2. **Add GitHub Secrets:**
+   Go to your GitHub repository → Settings → Secrets and variables → Actions, and add:
+   
+   - `AZURE_CREDENTIALS`: The JSON output from step 1
+   - `GOOGLE_APPLICATION_CREDENTIALS_JSON`: Your Google Cloud service account JSON
+
+3. **Workflow Triggers:**
+   The workflow automatically deploys when you push changes to:
+   - `src/functions/textToSpeech.js`
+   - `package.json`
+   - `package-lock.json`
+   - `host.json`
+
+4. **Manual Deployment:**
+   You can also trigger deployment manually from the Actions tab in GitHub.
+
+### What the Workflow Does
+
+1. **Environment Setup**: Installs Node.js 18 and dependencies
+2. **Terraform Integration**: Gets the Function App name from your Terraform state
+3. **Azure Authentication**: Logs in using your service principal
+4. **Function Deployment**: Uses Azure Functions Core Tools to deploy
+5. **Configuration**: Sets environment variables including Google credentials
+6. **Verification**: Provides deployment summary with function URL
+
+### Workflow Benefits
+
+- **Automatic Deployment**: No manual deployment steps needed
+- **State Integration**: Works with your existing Terraform infrastructure
+- **Secure**: Uses GitHub Secrets for sensitive data
+- **Fast**: Only deploys when relevant files change
+- **Reliable**: Full CI/CD pipeline with proper error handling
+
+## Manual Deployment
 
 ### Option 1: Terraform (Recommended)
 
