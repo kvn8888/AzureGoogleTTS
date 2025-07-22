@@ -116,6 +116,49 @@ The system leverages **wink-nlp** with a trained English language model to provi
 
 This intelligent approach ensures that the generated audio sounds natural and professional, avoiding awkward pauses or cuts in the middle of sentences.
 
+## Intelligent Rate Limiting & Batch Processing
+
+The system automatically adapts its processing strategy based on the volume of text to handle large documents while respecting API quotas.
+
+### Adaptive Processing Strategy
+
+**Small Text (≤10 chunks):**
+- Uses simple sequential processing
+- Minimal delays between requests
+- Fast processing for typical use cases
+
+**Large Text (>10 chunks):**
+- Switches to intelligent batch processing
+- Respects Google Cloud TTS rate limits (default: 100 requests/minute with buffer)
+- Processes chunks in controlled batches with staggered timing
+- Implements exponential backoff for rate limit errors
+
+### Rate Limiting Features
+
+**Quota Management:**
+- **Configurable Rate Limits**: Default 100 requests/minute (leaves headroom under typical 120/min quota)
+- **Batch Processing**: Processes up to 10 concurrent requests per batch
+- **Smart Delays**: Calculates optimal delays between requests to stay under limits
+- **Progress Tracking**: Real-time progress updates for long-running operations
+
+**Error Handling & Resilience:**
+- **Automatic Retry**: Up to 3 retries per chunk with exponential backoff
+- **Rate Limit Detection**: Intelligently detects and handles quota exceeded errors  
+- **Partial Success**: Continues processing even if some chunks fail (up to 10% failure tolerance)
+- **Graceful Degradation**: Returns partial results when possible
+
+### Example: Processing 200 Chunks
+
+For a large text resulting in 200 chunks with a 120/minute quota:
+
+1. **Batching**: Processes in batches of 10 chunks
+2. **Timing**: ~60 seconds per 100 chunks (with safety margin)  
+3. **Duration**: ~2 minutes total processing time
+4. **Resilience**: Automatic retries for any failed chunks
+5. **Progress**: Real-time status updates throughout processing
+
+This ensures reliable processing of large documents without hitting API limits or losing data.
+
 ## Deployment
 
 ### Option 1: Terraform (Recommended)

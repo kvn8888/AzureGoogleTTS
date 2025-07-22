@@ -190,6 +190,14 @@ function splitLongTextAtWordBoundaries(text, maxLength) {
     return chunks;
 }
 
+/**
+ * Synthesizes a single text chunk using Google Cloud TTS
+ * 
+ * @param {Object} client - Google Cloud TTS client
+ * @param {string} text - Text to synthesize
+ * @param {Object} options - Synthesis options (voice, language, format)
+ * @returns {Promise<Buffer>} - Audio content as buffer
+ */
 async function synthesizeChunk(client, text, options = {}) {
     const request = {
         input: { text: text },
@@ -206,8 +214,191 @@ async function synthesizeChunk(client, text, options = {}) {
         const [response] = await client.synthesizeSpeech(request);
         return response.audioContent;
     } catch (error) {
+        // Check if it's a rate limit error for intelligent handling
+        if (error.code === 8 || error.message.includes('quota') || error.message.includes('rate')) {
+            throw new RateLimitError(`Rate limit exceeded: ${error.message}`);
+        }
         throw new Error(`TTS synthesis failed: ${error.message}`);
     }
+}
+
+/**
+ * Custom error class for rate limit detection
+ */
+class RateLimitError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'RateLimitError';
+        this.isRateLimit = true;
+    }
+}
+
+/**
+ * Rate-limited batch processor for TTS synthesis
+ * 
+ * Intelligently handles large numbers of chunks while respecting API quotas:
+ * - Processes chunks in controlled batches
+ * - Implements exponential backoff for rate limiting
+ * - Provides progress tracking for long operations
+ * - Handles retry logic for failed chunks
+ * 
+ * @param {Object} client - Google Cloud TTS client
+ * @param {string[]} chunks - Array of text chunks to synthesize
+ * @param {Object} options - Processing options
+ * @param {Function} progressCallback - Progress reporting callback
+ * @returns {Promise<Buffer[]>} - Array of synthesized audio buffers
+ */
+async function processChunksWithRateLimit(client, chunks, options = {}, progressCallback = null) {
+    const {
+        maxConcurrent = 10,           // Max concurrent requests
+        maxRequestsPerMinute = 120,   // API quota limit
+        initialRetryDelay = 1000,     // Initial retry delay (1 second)
+        maxRetries = 3                // Max retries per chunk
+    } = options;
+
+    // Calculate optimal batch timing to respect rate limits
+    const batchSize = Math.min(maxConcurrent, maxRequestsPerMinute);
+    const batchDelayMs = batchSize >= maxRequestsPerMinute ? 60000 : 0; // Wait full minute if hitting limit
+    const requestDelayMs = Math.max(100, (60000 / maxRequestsPerMinute) * 1.1); // Add 10% buffer
+
+    const results = new Array(chunks.length);
+    const failedChunks = [];
+    let processedCount = 0;
+    
+    // Report initial progress
+    if (progressCallback) {
+        progressCallback({
+            processed: 0,
+            total: chunks.length,
+            status: 'Starting batch processing...',
+            estimatedTimeMinutes: Math.ceil(chunks.length / maxRequestsPerMinute)
+        });
+    }
+
+    // Process chunks in batches to respect rate limits
+    for (let batchStart = 0; batchStart < chunks.length; batchStart += batchSize) {
+        const batch = chunks.slice(batchStart, batchStart + batchSize);
+        const batchPromises = [];
+
+        // Create promises for current batch with staggered timing
+        for (let i = 0; i < batch.length; i++) {
+            const chunkIndex = batchStart + i;
+            const chunk = batch[i];
+            
+            // Stagger requests within the batch to smooth out rate limiting
+            const delay = i * requestDelayMs;
+            
+            const promise = new Promise(async (resolve) => {
+                if (delay > 0) {
+                    await new Promise(r => setTimeout(r, delay));
+                }
+                
+                // Attempt synthesis with retry logic
+                let lastError = null;
+                for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                    try {
+                        const audioContent = await synthesizeChunk(client, chunk, options);
+                        resolve({ index: chunkIndex, success: true, data: audioContent });
+                        return;
+                    } catch (error) {
+                        lastError = error;
+                        
+                        if (error.isRateLimit && attempt < maxRetries) {
+                            // Exponential backoff for rate limit errors
+                            const retryDelay = initialRetryDelay * Math.pow(2, attempt);
+                            await new Promise(r => setTimeout(r, retryDelay));
+                            continue;
+                        }
+                        break; // Exit retry loop on non-rate-limit errors or max retries reached
+                    }
+                }
+                
+                // All attempts failed
+                resolve({ 
+                    index: chunkIndex, 
+                    success: false, 
+                    error: lastError.message,
+                    chunk: chunk
+                });
+            });
+            
+            batchPromises.push(promise);
+        }
+
+        // Wait for current batch to complete
+        const batchResults = await Promise.all(batchPromises);
+        
+        // Process batch results
+        for (const result of batchResults) {
+            if (result.success) {
+                results[result.index] = result.data;
+                processedCount++;
+            } else {
+                failedChunks.push({
+                    index: result.index,
+                    chunk: result.chunk,
+                    error: result.error
+                });
+            }
+        }
+
+        // Report progress
+        if (progressCallback) {
+            const remainingBatches = Math.ceil((chunks.length - batchStart - batchSize) / batchSize);
+            const estimatedRemainingMinutes = remainingBatches > 0 ? Math.ceil(remainingBatches * (batchDelayMs / 60000 + (batchSize * requestDelayMs) / 60000)) : 0;
+            
+            progressCallback({
+                processed: processedCount,
+                total: chunks.length,
+                failed: failedChunks.length,
+                status: `Processed batch ${Math.floor(batchStart / batchSize) + 1}/${Math.ceil(chunks.length / batchSize)}`,
+                estimatedRemainingMinutes
+            });
+        }
+
+        // Wait between batches if we're near the rate limit
+        if (batchStart + batchSize < chunks.length && batchDelayMs > 0) {
+            if (progressCallback) {
+                progressCallback({
+                    processed: processedCount,
+                    total: chunks.length,
+                    failed: failedChunks.length,
+                    status: `Rate limit cooldown: waiting ${batchDelayMs/1000}s before next batch...`,
+                    estimatedRemainingMinutes: Math.ceil(batchDelayMs / 60000)
+                });
+            }
+            await new Promise(resolve => setTimeout(resolve, batchDelayMs));
+        }
+    }
+
+    // Handle any failed chunks
+    if (failedChunks.length > 0) {
+        const errorMessage = `Failed to process ${failedChunks.length}/${chunks.length} chunks`;
+        if (progressCallback) {
+            progressCallback({
+                processed: processedCount,
+                total: chunks.length,
+                failed: failedChunks.length,
+                status: errorMessage,
+                failedChunks: failedChunks.map(f => ({ index: f.index, error: f.error }))
+            });
+        }
+        
+        // For now, throw an error if too many chunks failed
+        // In production, you might want to return partial results
+        if (failedChunks.length > chunks.length * 0.1) { // More than 10% failed
+            throw new Error(`${errorMessage}. Errors: ${failedChunks.slice(0, 3).map(f => f.error).join(', ')}${failedChunks.length > 3 ? '...' : ''}`);
+        }
+    }
+
+    // Fill in any missing results with empty buffers (for failed chunks that weren't too critical)
+    for (let i = 0; i < results.length; i++) {
+        if (!results[i]) {
+            results[i] = Buffer.alloc(0); // Empty buffer for failed chunks
+        }
+    }
+
+    return results;
 }
 
 app.http('textToSpeech', {
@@ -244,19 +435,50 @@ app.http('textToSpeech', {
             const chunks = intelligentTextChunking(inputText);
             context.log(`Intelligently chunked text into ${chunks.length} sentence-based segments`);
 
-            // Synthesize each chunk
-            const audioChunks = [];
-            for (const chunk of chunks) {
-                const audioContent = await synthesizeChunk(client, chunk);
-                audioChunks.push(audioContent);
-                // Optional: add a small delay for very long texts with multiple chunks
-                if (chunks.length > 1) {
-                    await new Promise(resolve => setTimeout(resolve, 500));
+            // Determine processing approach based on chunk count
+            let audioChunks;
+            if (chunks.length <= 10) {
+                // Small number of chunks - use simple sequential processing
+                context.log('Using simple sequential processing for small text');
+                audioChunks = [];
+                for (const chunk of chunks) {
+                    const audioContent = await synthesizeChunk(client, chunk);
+                    audioChunks.push(audioContent);
+                    // Small delay between chunks
+                    if (chunks.length > 1) {
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
                 }
+            } else {
+                // Large number of chunks - use intelligent rate-limited batch processing
+                context.log(`Using rate-limited batch processing for ${chunks.length} chunks`);
+                
+                // Progress callback for logging
+                const progressCallback = (progress) => {
+                    context.log(`TTS Progress: ${progress.processed}/${progress.total} chunks processed. Status: ${progress.status}`);
+                    if (progress.estimatedRemainingMinutes > 0) {
+                        context.log(`Estimated remaining time: ${progress.estimatedRemainingMinutes} minutes`);
+                    }
+                };
+
+                // Configure rate limiting based on expected API quotas
+                const batchOptions = {
+                    maxConcurrent: 10,        // Conservative concurrent requests
+                    maxRequestsPerMinute: 100, // Leave some headroom under 120/min quota
+                    initialRetryDelay: 1000,
+                    maxRetries: 3
+                };
+
+                audioChunks = await processChunksWithRateLimit(
+                    client, 
+                    chunks, 
+                    batchOptions, 
+                    progressCallback
+                );
             }
 
-            // Combine audio chunks
-            const finalAudio = Buffer.concat(audioChunks);
+            // Combine audio chunks into final audio
+            const finalAudio = Buffer.concat(audioChunks.filter(chunk => chunk && chunk.length > 0));
 
             // Return audio as base64 encoded response
             return {
