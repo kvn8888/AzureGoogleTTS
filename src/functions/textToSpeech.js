@@ -27,22 +27,52 @@ async function initializeClient() {
     return ttsClient;
 }
 
-function splitTextIntoChunks(text) {
+function splitTextIntoChunks(text, maxLength = 4900) {
     if (!text) return [];
-    
-    // Normalize line breaks
     text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    
-    // Split on sentence endings and paragraph breaks
-    const splitPattern = /(?<=[.!?])\s+|\n{2,}\s*/g;
-    const potentialChunks = text.split(splitPattern);
-    
-    // Filter out empty chunks and trim whitespace
-    const chunks = potentialChunks
-        .map(chunk => chunk.trim())
-        .filter(chunk => chunk.length > 0);
-    
-    return chunks;
+
+    if (text.length <= maxLength) {
+        return [text.trim()];
+    }
+
+    const chunks = [];
+    let remainingText = text;
+
+    while (remainingText.length > 0) {
+        if (remainingText.length <= maxLength) {
+            chunks.push(remainingText.trim());
+            break;
+        }
+
+        let splitPos = -1;
+        
+        // Try to find a sentence-ending punctuation mark
+        const sentenceDelimiters = ['.', '!', '?', '\n\n'];
+        for (const delimiter of sentenceDelimiters) {
+            const pos = remainingText.lastIndexOf(delimiter, maxLength);
+            if (pos > splitPos) {
+                splitPos = pos;
+            }
+        }
+
+        // If no sentence end, find the last space
+        if (splitPos === -1) {
+            splitPos = remainingText.lastIndexOf(' ', maxLength);
+        }
+
+        // If no space, hard cut (worst case)
+        if (splitPos === -1) {
+            splitPos = maxLength;
+        }
+        
+        // Adjust position to be after the delimiter
+        splitPos += 1;
+
+        chunks.push(remainingText.substring(0, splitPos).trim());
+        remainingText = remainingText.substring(splitPos);
+    }
+
+    return chunks.filter(chunk => chunk.length > 0);
 }
 
 async function synthesizeChunk(client, text, options = {}) {
@@ -65,17 +95,9 @@ async function synthesizeChunk(client, text, options = {}) {
     }
 }
 
-async function combineAudioChunks(audioChunks) {
-    // For now, just concatenate the binary data
-    // In a production environment, you might want to use a proper audio library
-    const totalLength = audioChunks.reduce((sum, chunk) => sum + chunk.length, 0);
-    const combined = Buffer.concat(audioChunks, totalLength);
-    return combined;
-}
-
 app.http('textToSpeech', {
     methods: ['POST'],
-    authLevel: 'function',
+    authLevel: 'anonymous',
     handler: async (request, context) => {
         context.log('Text-to-Speech function triggered');
 
@@ -108,28 +130,17 @@ app.http('textToSpeech', {
 
             // Synthesize each chunk
             const audioChunks = [];
-            const batchSize = 10; // Process in batches to avoid rate limits
-            
-            for (let i = 0; i < chunks.length; i += batchSize) {
-                const batch = chunks.slice(i, i + batchSize);
-                const batchPromises = batch.map(chunk => synthesizeChunk(client, chunk));
-                
-                try {
-                    const batchResults = await Promise.all(batchPromises);
-                    audioChunks.push(...batchResults);
-                } catch (error) {
-                    context.log.error(`Batch ${Math.floor(i / batchSize)} failed:`, error.message);
-                    throw error;
-                }
-
-                // Add delay between batches to respect rate limits
-                if (i + batchSize < chunks.length) {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+            for (const chunk of chunks) {
+                const audioContent = await synthesizeChunk(client, chunk);
+                audioChunks.push(audioContent);
+                // Optional: add a small delay for very long texts with multiple chunks
+                if (chunks.length > 1) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
                 }
             }
 
             // Combine audio chunks
-            const finalAudio = await combineAudioChunks(audioChunks);
+            const finalAudio = Buffer.concat(audioChunks);
 
             // Return audio as base64 encoded response
             return {
