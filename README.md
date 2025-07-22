@@ -223,7 +223,3 @@ The function includes comprehensive error handling for:
 - Google Cloud authentication failures
 - Text-to-Speech API errors
 - Rate limiting and batch processing issues
-
-## License
-
-MIT
