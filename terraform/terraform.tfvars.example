@@ -1,0 +1,14 @@
+# Copy this file to terraform.tfvars and fill in your values
+
+resource_group_name = "rg-my-tts-app"
+location = "East US"
+storage_account_name = "stmyttsapp202507"  # Must be globally unique, 3-24 chars, lowercase letters and numbers only
+function_app_name = "func-my-tts-app"      # Must be globally unique
+app_service_plan_name = "asp-my-tts-app"
+app_insights_name = "ai-my-tts-app"
+
+# Option 1: Set credentials in .tfvars file (for local development)
+google_credentials_json = "{\"type\":\"service_account\",\"project_id\":\"your-project\",...}"
+
+# Option 2: Use environment variable instead (comment out line above and use this)
+# export TF_VAR_google_credentials_json='{"type":"service_account",...}'
