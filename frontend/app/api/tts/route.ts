@@ -48,15 +48,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Make secure request to Azure Function with server-side key
+    // Make secure request to Azure Function with server-side key and extended timeout
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 8 * 60 * 1000) // 8 minutes timeout
+    
     const response = await fetch(azureFunctionUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-functions-key': azureFunctionKey, // Key stays on server
       },
-      body: JSON.stringify({ text })
+      body: JSON.stringify({ text }),
+      signal: controller.signal
     })
+    
+    clearTimeout(timeoutId)
 
     if (!response.ok) {
       const errorText = await response.text()
@@ -86,6 +92,14 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('API route error:', error)
+    
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json(
+        { error: 'Request timed out - Text processing took too long' },
+        { status: 408 }
+      )
+    }
+    
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

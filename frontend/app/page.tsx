@@ -12,6 +12,7 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [processingMessage, setProcessingMessage] = useState('')
 
   // Redirect to sign-in if not authenticated
   if (status === 'loading') {
@@ -40,16 +41,33 @@ export default function Home() {
     setIsGenerating(true)
     setError(null)
     setAudioUrl(null)
+    setProcessingMessage('Preparing text for processing...')
 
     try {
-      // Call our secure server-side API route instead of Azure directly
+      // Call our secure server-side API route with extended timeout for large texts
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000) // 10 minutes timeout
+      
+      // Estimate processing time based on text length
+      const estimatedChunks = Math.ceil(text.length / 4000)
+      const estimatedMinutes = Math.max(1, Math.ceil(estimatedChunks / 60))
+      
+      if (estimatedChunks > 50) {
+        setProcessingMessage(`Processing large text (${estimatedChunks} chunks). This may take ${estimatedMinutes}-${estimatedMinutes + 1} minutes...`)
+      } else {
+        setProcessingMessage('Converting text to speech...')
+      }
+      
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ text }),
+        signal: controller.signal
       })
+      
+      clearTimeout(timeoutId)
 
       if (!response.ok) {
         const errorData = await response.json()
@@ -74,9 +92,18 @@ export default function Home() {
       setAudioUrl(url)
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred')
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          setError('Request timed out - The text might be too long. Try processing smaller chunks.')
+        } else {
+          setError(err.message)
+        }
+      } else {
+        setError('An error occurred')
+      }
     } finally {
       setIsGenerating(false)
+      setProcessingMessage('')
     }
   }
 
@@ -169,6 +196,16 @@ export default function Home() {
                 </>
               )}
             </button>
+
+            {/* Processing Status */}
+            {isGenerating && processingMessage && (
+              <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-lg">
+                <div className="flex items-center">
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {processingMessage}
+                </div>
+              </div>
+            )}
 
             {/* Audio Controls */}
             {audioUrl && (
