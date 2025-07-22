@@ -66,6 +66,15 @@ curl -X POST http://localhost:7071/api/textToSpeech \
 }
 ```
 
+### Receive audio file
+```bash
+curl -X POST http://localhost:7071/api/textToSpeech \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello from the cloud! This is a successful deployment."}' | \
+  jq -r .audioData | \
+  base64 --decode > tts.ogg
+```
+
 ## Configuration
 
 The function uses the following default settings:
@@ -116,6 +125,34 @@ The function automatically splits input text into chunks using:
    npx func azure functionapp publish $(terraform -chdir=terraform output -raw function_app_name)
    ```
 
+5. **Get your function key (for secure access):**
+   ```bash
+   az functionapp keys list --name $(terraform -chdir=terraform output -raw function_app_name) --resource-group $(terraform -chdir=terraform output -raw resource_group_name) --query "functionKeys.default" -o tsv
+   ```
+
+## Using the Deployed API
+
+### Get Audio File (Secure)
+Replace `YOUR_FUNCTION_KEY` with the key from step 5 above:
+
+```bash
+curl -X POST "$(terraform -chdir=terraform output -raw function_app_api_url)" \
+  -H "Content-Type: application/json" \
+  -H "x-functions-key: YOUR_FUNCTION_KEY" \
+  -d '{"text": "Hello from the cloud! This is a successful deployment."}' | \
+  jq -r .audioData | \
+  base64 --decode > tts.ogg
+```
+
+Or using query parameter:
+```bash
+curl -X POST "$(terraform -chdir=terraform output -raw function_app_api_url)?code=YOUR_FUNCTION_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello from the cloud!"}' | \
+  jq -r .audioData | \
+  base64 --decode > tts.ogg
+```
+
 ### Option 2: Azure CLI
 
 1. **Create Azure Function App:**
@@ -141,6 +178,19 @@ The function automatically splits input text into chunks using:
      --resource-group myResourceGroup \
      --settings "GOOGLE_APPLICATION_CREDENTIALS_JSON=<your-json-credentials>"
    ```
+
+4. **Get your function key:**
+   ```bash
+   az functionapp keys list --name myTTSFunction --resource-group myResourceGroup --query "functionKeys.default" -o tsv
+   ```
+
+## Security
+
+The function uses function-level authorization, which means:
+- Each request must include a secret function key
+- The function key can be passed as a header (`x-functions-key`) or query parameter (`code`)
+- Keys can be retrieved using the Azure CLI or Azure Portal
+- Using an unguessable function app name (with GUID) provides additional security through obscurity
 
 ## Error Handling
 

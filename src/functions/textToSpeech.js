@@ -97,7 +97,7 @@ async function synthesizeChunk(client, text, options = {}) {
 
 app.http('textToSpeech', {
     methods: ['POST'],
-    authLevel: 'anonymous',
+    authLevel: 'function',
     handler: async (request, context) => {
         context.log('Text-to-Speech function triggered');
 
