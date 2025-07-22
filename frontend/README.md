@@ -230,7 +230,3 @@ az functionapp keys list \
 - **TypeScript** - Type safety and better DX
 - **Lucide React** - Beautiful, customizable icons
 - **Vercel** - Seamless deployment and hosting
-
-## License
-
-MIT
