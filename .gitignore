@@ -17,6 +17,12 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate*
+terraform/terraform.tfvars
+
 # IDE
 .vscode/
 .idea/
